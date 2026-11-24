@@ -18,9 +18,16 @@ Long-only EMA momentum trend-follower, one buy per mint, ever:
 - **Sell** on take-profit +35%, stop-loss −10%, a ~18 min max hold, or a `CompleteEvent`.
 - **Never re-buys** a mint it already traded, and never shorts. Deterministic: no randomness, no clock, no network; mints processed in sorted order.
 
-## Dev grade
+## Dev grade (kit's `grade-local`, `--driver process`)
 
-(TODO — filled in after `grade-local` runs.)
+- Net PnL **−0.581 SOL** on the 24 h dev window (90% interval −0.868 … −0.327 SOL), return −5.8%
+- **59 coins** traded, 59 round trips (≥ 0.01 SOL each), 113 fills, win rate 8.5%
+- Max drawdown **5.9%** — guardrails met (≥ 20 coins, drawdown ≤ 50%)
+- Two executions reproduce byte for byte (deterministic); 16 orders rejected, 5 failed
+- Fees: 0.081 SOL curve + 0.013 SOL tx; net PnL at 2× fees −0.668 SOL
+- Top 3 coins made 80% of the gains; without them net PnL is −0.69 SOL
+
+The dev window is a hard tape for momentum (most coins fade after their first spike), so the bot is built to survive it with a small drawdown and a wide coin count rather than to chase a single runner. PnL is below holding cash, so it would rank but win no prize on this window.
 
 ## Run
 
