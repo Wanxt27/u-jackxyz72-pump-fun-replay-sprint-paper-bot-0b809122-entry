@@ -1,11 +1,6 @@
 // Pump.fun Replay Sprint — EMA momentum paper bot (LONG ONLY).
-// Protocol: agent-fun/replay/v2 — NDJSON on stdin (hello, batch, done),
-// one {"type":"reply","seq":N,"orders":[...]} per batch on stdout.
-// Price per mint = virtual quote reserves / virtual token reserves
 // (lamports of SOL per token), taken from each batch's marks, falling
 // back to the latest TradeEvent reserves for mints without a mark.
-// One batch arrives per slot that carries universe records, so all
-// lookbacks below are measured in SLOTS (~2.5 slots per second).
 // Strategy: buy a young coin ONCE, only while its fast EMA sits above
 // its slow EMA and the price is stretched above the slow EMA (or the
 // coin is up sharply over the last ~100 s); sell on take-profit,
@@ -36,13 +31,11 @@ const TAKE_PROFIT = 0.35; // +35% from entry
 const STOP_LOSS = -0.1; // -10% from entry
 const MAX_HOLD_SLOTS = 2700; // ~18 min, then exit
 
-const MAX_POSITIONS_FALLBACK = 5;
-const MAX_ORDERS_FALLBACK = 16;
+const MAX_POSITIONS_FALLBACK = 5; const MAX_ORDERS_FALLBACK = 16;
 const HISTORY_CAP = 64; // price samples kept per mint
 
 interface Sample {
-  slot: number;
-  price: number;
+  slot: number; price: number;
 }
 
 interface Coin {
@@ -58,10 +51,8 @@ interface Coin {
   entrySlot: number;
 }
 
-const coins = new Map<string, Coin>();
-const everBought = new Set<string>();
-let maxOpenPositions = MAX_POSITIONS_FALLBACK;
-let maxOrdersPerBatch = MAX_ORDERS_FALLBACK;
+const coins = new Map<string, Coin>(); const everBought = new Set<string>();
+let maxOpenPositions = MAX_POSITIONS_FALLBACK; let maxOrdersPerBatch = MAX_ORDERS_FALLBACK;
 let cashLamports = 10_000_000_000; // 10 SOL, replaced by hello capital
 let orderCounter = 0;
 
@@ -69,16 +60,12 @@ function coinFor(mint: string, slot: number, price: number): Coin {
   let c = coins.get(mint);
   if (!c) {
     c = {
-      price: 0,
-      realQuote: 0,
-      firstSlot: slot,
-      firstPrice: price,
+      price: 0, realQuote: 0,
+      firstSlot: slot, firstPrice: price,
       seen: 0,
       fastEma: 0,
       slowEma: 0,
-      history: [],
-      entryPrice: 0,
-      entrySlot: 0,
+      history: [], entryPrice: 0, entrySlot: 0,
     };
     coins.set(mint, c);
   }
@@ -118,7 +105,6 @@ function observe(
   }
 }
 
-// Price at or before (slot - back): the newest sample no later than that.
 function priceBack(c: Coin, slot: number, back: number): number {
   const target = slot - back;
   for (let i = c.history.length - 1; i >= 0; i--) {
@@ -132,25 +118,20 @@ function reply(seq: number, orders: unknown[]): void {
 }
 
 function handleBatch(msg: any): void {
-  const seq: number = msg.seq;
-  const slot: number = msg.slot;
+  const seq: number = msg.seq; const slot: number = msg.slot;
   const orders: any[] = [];
   const seenThisBatch = new Set<string>();
 
-  // 1. Marks first: the freshest reserves per mint this batch.
   const marks: any[] = Array.isArray(msg.marks) ? msg.marks : [];
   for (const m of marks) {
     if (typeof m.mint !== "string") continue;
-    const vt = Number(m.virtual_token_reserves);
-    const vq = Number(m.virtual_quote_reserves);
+    const vt = Number(m.virtual_token_reserves); const vq = Number(m.virtual_quote_reserves);
     if (vt > 0 && vq > 0) {
       observe(m.mint, vq / vt, Number(m.real_quote_reserves ?? "0"), slot);
       seenThisBatch.add(m.mint);
     }
   }
-  // 2. TradeEvents for mints with no mark this batch (latest event wins).
-  const events: any[] = Array.isArray(msg.events) ? msg.events : [];
-  const completed = new Set<string>();
+  const events: any[] = Array.isArray(msg.events) ? msg.events : []; const completed = new Set<string>();
   for (const e of events) {
     if (!e || typeof e.mint !== "string") continue;
     if (e.event === "CompleteEvent") {
@@ -159,15 +140,13 @@ function handleBatch(msg: any): void {
     }
     if (e.event !== "TradeEvent") continue;
     if (seenThisBatch.has(e.mint)) continue;
-    const vt = Number(e.virtual_token_reserves);
-    const vs = Number(e.virtual_sol_reserves);
+    const vt = Number(e.virtual_token_reserves); const vs = Number(e.virtual_sol_reserves);
     if (vt > 0 && vs > 0) {
       observe(e.mint, vs / vt, Number(e.real_sol_reserves ?? "0"), slot);
       seenThisBatch.add(e.mint);
     }
   }
 
-  // 3. Positions as the harness reports them (source of truth).
   const account = msg.account ?? { cash_lamports: "0", positions: [] };
   cashLamports = Number(account.cash_lamports ?? "0");
   const positions: any[] = Array.isArray(account.positions)
@@ -180,21 +159,17 @@ function handleBatch(msg: any): void {
     }
   }
 
-  // 4. Fills: refresh entry prices from our own buy fills.
   const fills: any[] = Array.isArray(msg.fills) ? msg.fills : [];
   for (const f of fills) {
     if (!f || f.status !== "filled" || f.side !== "buy") continue;
     const c = coins.get(f.mint);
     if (!c) continue;
-    const quote = Number(f.quote_lamports ?? "0");
-    const tokens = Number(f.token_amount ?? "0");
+    const quote = Number(f.quote_lamports ?? "0"); const tokens = Number(f.token_amount ?? "0");
     if (quote > 0 && tokens > 0) {
-      c.entryPrice = quote / tokens;
-      c.entrySlot = slot;
+      c.entryPrice = quote / tokens; c.entrySlot = slot;
     }
   }
 
-  // 5. Sells first: take-profit, stop-loss, max hold, completion.
   const sellMints = [...held.keys()].sort();
   for (const mint of sellMints) {
     if (orders.length >= maxOrdersPerBatch) break;
@@ -218,9 +193,7 @@ function handleBatch(msg: any): void {
         token_amount: tokens.toString(),
         max_slippage_bps: MAX_SLIPPAGE_BPS,
       });
-      held.delete(mint);
-      c.entryPrice = 0;
-      c.entrySlot = 0;
+      held.delete(mint); c.entryPrice = 0; c.entrySlot = 0;
     }
   }
 
@@ -254,7 +227,6 @@ function handleBatch(msg: any): void {
       if (held.size >= maxOpenPositions) break;
       if (cashLamports <= BUY_LAMPORTS) break;
       const c = coins.get(cand.mint)!;
-      // Size from the mint's tracked real reserves; small when unknown.
       let size = c.realQuote > 0 ? BUY_LAMPORTS : SMALL_BUY_LAMPORTS;
       if (c.realQuote > 0) {
         const cap = Math.floor((c.realQuote * ORDER_CAP_BPS) / 10000);
@@ -271,8 +243,7 @@ function handleBatch(msg: any): void {
         max_slippage_bps: MAX_SLIPPAGE_BPS,
       });
       held.set(cand.mint, 0n); // reserve the slot for this batch
-      everBought.add(cand.mint);
-      cashLamports -= size;
+      everBought.add(cand.mint); cashLamports -= size;
       c.entryPrice = c.price; // provisional; corrected by the fill
       c.entrySlot = slot;
     }
@@ -312,7 +283,6 @@ rl.on("line", (line: string) => {
     return;
   }
   if (msg.type === "done") {
-    rl.close();
-    process.exit(0);
+    rl.close(); process.exit(0);
   }
 });
